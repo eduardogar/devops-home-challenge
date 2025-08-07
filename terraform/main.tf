@@ -35,12 +35,16 @@ resource "docker_container" "local_registry" {
 
 # 4. Provision the Jenkins server
 resource "docker_image" "jenkins_image" {
-  name = "jenkins/jenkins:lts"
+  name = "my-jenkins-custom-controller" 
+  build {
+    context    = "./jenkins"
+    dockerfile = "Dockerfile"
+  }
 }
 
 resource "docker_container" "jenkins_server" {
   name  = "jenkins"
-  image = docker_image.jenkins_image.image_id
+  image = docker_image.jenkins_image.id # Use the ID of the built image
   ports {
     internal = 8080
     external = 8080
