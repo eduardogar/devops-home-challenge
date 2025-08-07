@@ -2,7 +2,7 @@
 terraform {
   required_providers {
     minikube = {
-      source = "gavinbunney/minikube"
+      source = "scott-the-programmer/minikube"
     }
     docker = {
       source = "kreuzwerker/docker"
