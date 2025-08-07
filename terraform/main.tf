@@ -35,7 +35,7 @@ resource "docker_container" "local_registry" {
 
 # 4. Provision the Jenkins server
 resource "docker_image" "jenkins_image" {
-  name = "my-jenkins-docker-enabled"
+  name = "jenkins/jenkins:lts"
 }
 
 resource "docker_container" "jenkins_server" {
@@ -51,7 +51,7 @@ resource "docker_container" "jenkins_server" {
   }
   volumes {
     host_path      = "//./pipe/docker_engine"
-    container_path = "//./pipe/docker_engine"
+    container_path = "/var/run/docker.sock"
   }
   volumes {
     volume_name    = "jenkins_home"
