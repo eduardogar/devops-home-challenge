@@ -1,0 +1,30 @@
+replicaCount: 1
+
+image:
+  repository: host.docker.internal:5000/devops-challenge-app
+  pullPolicy: Always
+
+  tag: ""
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  hosts:
+    - host: myapp.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+config:
+  welcomeMessage: "Hello World from the default Helm chart!"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 128Mi

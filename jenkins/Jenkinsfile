@@ -1,0 +1,117 @@
+pipeline {
+    agent {
+        docker {
+            image 'alpine/k8s:1.28.3'
+            args '-v //./pipe/docker_engine:/var/run/docker.sock -v /tmp:/tmp'
+        }
+    }
+
+    environment {
+        REGISTRY_URL = "host.docker.internal:5000"
+        APP_NAME     = "devops-challenge-app"
+        // Define all image tags as variables
+        DOCKER_IMAGE_VERSIONED = "${REGISTRY_URL}/${APP_NAME}:${env.BUILD_NUMBER}"
+        DOCKER_IMAGE_LATEST    = "${REGISTRY_URL}/${APP_NAME}:latest"
+        DOCKER_IMAGE_STABLE    = "${REGISTRY_URL}/${APP_NAME}:stable"
+    }
+
+    stages {
+        stage('Setup Tools') {
+            steps {
+                sh '''
+                    echo "Installing necessary tools..."
+                    apk add --no-cache docker-cli git wget
+                    
+                    # Install Trivy
+                    wget -qO- https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+                    
+                    # Install tfsec
+                    wget -q https://github.com/aquasecurity/tfsec/releases/download/v1.28.1/tfsec-linux-amd64 -O /usr/local/bin/tfsec
+                    chmod +x /usr/local/bin/tfsec
+                    
+                    # Install Helm
+                    wget -q https://get.helm.sh/helm-v3.12.3-linux-amd64.tar.gz -O - | tar -xzO linux-amd64/helm > /usr/local/bin/helm
+                    chmod +x /usr/local/bin/helm
+                '''
+            }
+        }
+
+        stage('Code Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('IaC Security Scan') {
+            steps {
+                sh 'tfsec ./terraform'
+            }
+        }
+
+        stage('Docker Build & Tag') {
+            steps {
+                script {
+                    echo "Building and tagging new image..."
+                    sh "docker build --build-arg APP_VERSION=v1.${env.BUILD_NUMBER} -t ${DOCKER_IMAGE_VERSIONED} ./application"
+                    
+                    echo "Updating 'stable' tag..."
+                    // This block will try to pull the current 'latest' and tag it as 'stable'.
+                    // It will fail gracefully on the very first run, which is expected.
+                    try {
+                        sh "docker pull ${DOCKER_IMAGE_LATEST}"
+                        sh "docker tag ${DOCKER_IMAGE_LATEST} ${DOCKER_IMAGE_STABLE}"
+                        sh "docker push ${DOCKER_IMAGE_STABLE}"
+                    } catch (e) {
+                        echo "Could not re-tag previous 'latest' to 'stable'. This is expected on the first run."
+                    }
+
+                    echo "Updating 'latest' tag..."
+                    sh "docker tag ${DOCKER_IMAGE_VERSIONED} ${DOCKER_IMAGE_LATEST}"
+                    
+                    echo "Pushing all new tags..."
+                    sh "docker push ${DOCKER_IMAGE_VERSIONED}"
+                    sh "docker push ${DOCKER_IMAGE_LATEST}"
+                }
+            }
+        }
+
+        stage('Image Security Scan') {
+            steps {
+                echo "Scanning versioned image for vulnerabilities..."
+                sh "trivy image --exit-code 0 --severity HIGH,CRITICAL ${DOCKER_IMAGE_VERSIONED}"
+            }
+        }
+
+        stage('Deploy to Staging') {
+            steps {
+                echo 'Deploying application to the staging namespace using Helm...'
+                sh """
+                  helm upgrade --install my-app-staging ./kubernetes/helm-chart \
+                    --namespace staging \
+                    --set image.tag=${env.BUILD_NUMBER} \
+                    --set replicaCount=1 \
+                    --set config.welcomeMessage="Welcome to the STAGING Environment!"
+                """
+            }
+        }
+
+        stage('Approval for Production') {
+            steps {
+                input message: 'Deploy to Production?', ok: 'Yes'
+            }
+        }
+
+        stage('Deploy to Production') {
+            steps {
+                echo 'Deploying application to the production namespace using Helm...'
+                sh """
+                  helm upgrade --install my-app-production ./kubernetes/helm-chart \
+                    --namespace production \
+                    --set image.tag='stable' \
+                    --set replicaCount=3 \
+                    --set config.welcomeMessage="Welcome to the PRODUCTION Environment!"
+                """
+            }
+        }
+    }
+}
