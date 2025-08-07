@@ -1,7 +1,7 @@
 pipeline {
     agent {
         docker {
-            image 'my-jenkins-docker-enabled'
+            image 'alpine/k8s:1.28.3'
             args '-v //./pipe/docker_engine:/var/run/docker.sock -v /tmp:/tmp'
         }
     }
