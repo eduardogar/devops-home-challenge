@@ -16,26 +16,6 @@ pipeline {
     }
 
     stages {
-        stage('Setup Tools') {
-            steps {
-                sh '''
-                    echo "Installing necessary tools..."
-                    apk add --no-cache docker-cli git wget
-                    
-                    # Install Trivy
-                    wget -qO- https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
-                    
-                    # Install tfsec
-                    wget -q https://github.com/aquasecurity/tfsec/releases/download/v1.28.1/tfsec-linux-amd64 -O /usr/local/bin/tfsec
-                    chmod +x /usr/local/bin/tfsec
-                    
-                    # Install Helm
-                    wget -q https://get.helm.sh/helm-v3.12.3-linux-amd64.tar.gz -O - | tar -xzO linux-amd64/helm > /usr/local/bin/helm
-                    chmod +x /usr/local/bin/helm
-                '''
-            }
-        }
-
         stage('Code Checkout') {
             steps {
                 checkout scm

@@ -35,7 +35,7 @@ resource "docker_container" "local_registry" {
 
 # 4. Provision the Jenkins server
 resource "docker_image" "jenkins_image" {
-  name = "jenkins/jenkins:lts"
+  name = "my-jenkins-docker-enabled"
 }
 
 resource "docker_container" "jenkins_server" {
