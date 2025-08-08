@@ -35,16 +35,15 @@ resource "docker_container" "local_registry" {
 
 # 4. Provision the Jenkins server
 resource "docker_image" "jenkins_image" {
-  name = "my-jenkins-custom-controller" 
+  name = "my-jenkins-docker-enabled:latest" 
   build {
-    context    = "./jenkins"
-    dockerfile = "Dockerfile"
+    context = "../jenkins" 
   }
 }
 
 resource "docker_container" "jenkins_server" {
   name  = "jenkins"
-  image = docker_image.jenkins_image.id # Use the ID of the built image
+  image = docker_image.jenkins_image.name 
   ports {
     internal = 8080
     external = 8080
@@ -54,7 +53,7 @@ resource "docker_container" "jenkins_server" {
     external = 50000
   }
   volumes {
-    host_path      = "//./pipe/docker_engine"
+    host_path      = "/var/run/docker.sock"
     container_path = "/var/run/docker.sock"
   }
   volumes {
