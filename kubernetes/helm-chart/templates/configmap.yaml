@@ -1,8 +1,11 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "devops-challenge-app.name" . }}-configmap
+  # The name of the ConfigMap is now based on the release name and chart name.
+  name: {{ .Release.Name }}-{{ .Chart.Name }}-configmap
   labels:
-    {{- include "devops-challenge-app.labels" . | nindent 4 }}
+    # Using standard labels that Helm populates automatically.
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
 data:
   WELCOME_MESSAGE: {{ .Values.config.welcomeMessage | quote }}
