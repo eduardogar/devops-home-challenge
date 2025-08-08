@@ -2,7 +2,7 @@ FROM jenkins/jenkins:lts
 
 USER root
 
-# Install Docker CLI, Git, Helm, Trivy, tfsec, kubectl, and minikube
+# Install Python, pip, Docker CLI, Git, Helm, Trivy, tfsec, kubectl, and minikube
 RUN apt-get update && apt-get install -y \
     apt-transport-https \
     ca-certificates \
@@ -11,7 +11,12 @@ RUN apt-get update && apt-get install -y \
     lsb-release \
     git \
     wget \
-    unzip
+    unzip \
+    python3 \
+    python3-pip
+
+# Create symlink for the python command
+RUN ln -s /usr/bin/python3 /usr/bin/python
 
 # Docker CLI
 RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg && \

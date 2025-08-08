@@ -64,7 +64,7 @@ resource "docker_container" "jenkins_server" {
   
   # Mount the local ~/.minikube directory into the container to get the certificate files
   volumes {
-    host_path      = "/home/egarcia/.kube"
+    host_path      = "/home/egarcia/.minikube"
     container_path = "/var/jenkins_home/.minikube"
   }
 
