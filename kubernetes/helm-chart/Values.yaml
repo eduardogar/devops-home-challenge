@@ -3,7 +3,6 @@ replicaCount: 1
 image:
   repository: host.docker.internal:5000/devops-challenge-app
   pullPolicy: Always
-
   tag: ""
 
 service:
