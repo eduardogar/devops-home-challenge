@@ -1,37 +1,44 @@
 pipeline {
+
     agent any
 
+    // Environment variables used throughout the pipeline.
     environment {
         REGISTRY_URL = "host.docker.internal:5000"
         APP_NAME     = "devops-challenge-app"
-        // Define all image tags as variables
+        // Define all image tags as variables for consistency and readability.
         DOCKER_IMAGE_VERSIONED = "${REGISTRY_URL}/${APP_NAME}:${env.BUILD_NUMBER}"
         DOCKER_IMAGE_LATEST    = "${REGISTRY_URL}/${APP_NAME}:latest"
         DOCKER_IMAGE_STABLE    = "${REGISTRY_URL}/${APP_NAME}:stable"
     }
 
     stages {
+        // Stage 1: Checkout the source code from the repository.
         stage('Code Checkout') {
             steps {
                 checkout scm
             }
         }
 
+        // Stage 2: Perform a security scan on the Infrastructure as Code (IaC) files using tfsec.
         stage('IaC Security Scan') {
             steps {
                 sh 'tfsec ./terraform'
             }
         }
         
+        // Stage 3: Configure the Kubernetes context to point to the Minikube cluster.
         stage('Configure Kubernetes Context') {
             steps {
                 script {
                     echo "Configuring kubectl to use the Minikube cluster context..."
+                    sh 'minikube update-context'
                     sh 'kubectl config use-context devops-challenge'
                 }
             }
         }
 
+        // Stage 4: Build and tag the Docker image.
         stage('Docker Build & Tag') {
             steps {
                 script {
@@ -39,8 +46,6 @@ pipeline {
                     sh "docker build --build-arg APP_VERSION=v1.${env.BUILD_NUMBER} -t ${DOCKER_IMAGE_VERSIONED} ./application"
                     
                     echo "Updating 'stable' tag..."
-                    // This block will try to pull the current 'latest' and tag it as 'stable'.
-                    // It will fail gracefully on the very first run, which is expected.
                     try {
                         sh "docker pull ${DOCKER_IMAGE_LATEST}"
                         sh "docker tag ${DOCKER_IMAGE_LATEST} ${DOCKER_IMAGE_STABLE}"
@@ -50,15 +55,18 @@ pipeline {
                     }
 
                     echo "Updating 'latest' tag..."
+                    // Tag the new versioned image as 'latest'.
                     sh "docker tag ${DOCKER_IMAGE_VERSIONED} ${DOCKER_IMAGE_LATEST}"
                     
-                    echo "Pushing all new tags..."
+                    echo "Pushing all new tags to the local registry..."
+                    // Push the newly created tags to the local Docker registry.
                     sh "docker push ${DOCKER_IMAGE_VERSIONED}"
                     sh "docker push ${DOCKER_IMAGE_LATEST}"
                 }
             }
         }
 
+        // Stage 5: Scan the newly built Docker image for vulnerabilities using Trivy.
         stage('Image Security Scan') {
             steps {
                 echo "Scanning versioned image for vulnerabilities..."
@@ -66,6 +74,7 @@ pipeline {
             }
         }
 
+        // Stage 6: Deploy the application to a staging environment in the Minikube cluster using Helm.
         stage('Deploy to Staging') {
             steps {
                 echo 'Deploying application to the staging namespace using Helm...'
@@ -79,12 +88,14 @@ pipeline {
             }
         }
 
+        // Stage 7: Manual approval for promotion to production.
         stage('Approval for Production') {
             steps {
                 input message: 'Deploy to Production?', ok: 'Yes'
             }
         }
 
+        // Stage 8: Deploy the stable version of the application to the production environment.
         stage('Deploy to Production') {
             steps {
                 echo 'Deploying application to the production namespace using Helm...'

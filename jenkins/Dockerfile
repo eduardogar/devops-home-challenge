@@ -2,7 +2,7 @@ FROM jenkins/jenkins:lts
 
 USER root
 
-# Install Docker CLI, Git, Helm, Trivy, tfsec
+# Install Docker CLI, Git, Helm, Trivy, tfsec, kubectl, and minikube
 RUN apt-get update && apt-get install -y \
     apt-transport-https \
     ca-certificates \
@@ -28,6 +28,14 @@ RUN wget -qO- https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/
 # tfsec
 RUN wget -q https://github.com/aquasecurity/tfsec/releases/download/v1.28.1/tfsec-linux-amd64 -O /usr/local/bin/tfsec && \
     chmod +x /usr/local/bin/tfsec
+
+# kubectl
+RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+    
+# minikube
+RUN curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64 && \
+    install minikube-linux-amd64 /usr/local/bin/minikube
 
 # Permissions
 RUN groupadd -g 999 docker || true

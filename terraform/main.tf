@@ -33,7 +33,7 @@ resource "docker_image" "jenkins_image" {
   build { context = "../jenkins" }
 }
 
-# Run Jenkins; mount Docker socket and kubeconfig
+# Run Jenkins; mount Docker socket, kubeconfig, and Minikube certs
 resource "docker_container" "jenkins_server" {
   name  = "jenkins"
   image = docker_image.jenkins_image.name
@@ -60,6 +60,12 @@ resource "docker_container" "jenkins_server" {
   volumes {
     host_path      = "/home/egarcia/.kube"
     container_path = "/var/jenkins_home/.kube"
+  }
+  
+  # Mount the local ~/.minikube directory into the container to get the certificate files
+  volumes {
+    host_path      = "/home/egarcia/.kube"
+    container_path = "/var/jenkins_home/.minikube"
   }
 
   volumes {
