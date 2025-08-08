@@ -1,135 +1,148 @@
 // This Jenkinsfile defines a declarative pipeline for building, testing, and deploying a Docker application.
 // The pipeline is configured to run on the Jenkins master node using 'agent any'.
+pipeline {
+    // This agent directive tells Jenkins to run the pipeline on any available agent.
+    agent any
 
-node {
-    // Define environment variables. Note that in scripted pipelines,
-    // they are often defined as Groovy variables at the top of the node block.
-    def REPO_URL     = "https://github.com/eduardogar/devops-home-challenge.git"
-    def BRANCH_NAME  = "main"
-    def REGISTRY_URL = "host.docker.internal:5000"
-    def APP_NAME     = "devops-challenge-app"
-    def DOCKER_IMAGE_VERSIONED
-    def DOCKER_IMAGE_LATEST
-    def DOCKER_IMAGE_STABLE
+    // Define environment variables. These are available to all stages.
+    environment {
+        REPO_URL     = 'https://github.com/eduardogar/devops-home-challenge.git'
+        BRANCH_NAME  = 'main'
+        REGISTRY_URL = 'host.docker.internal:5000'
+        APP_NAME     = 'devops-challenge-app'
+    }
 
-    try {
+    stages {
         // Stage 1: Checkout the source code from the repository.
         stage('Code Checkout') {
-            // This step performs the equivalent of 'git clone' using the Jenkins Git plugin,
-            // using the specified branch.
-            git url: "${REPO_URL}", branch: "${BRANCH_NAME}"
+            steps {
+                // This step performs the equivalent of 'git clone' using the Jenkins Git plugin,
+                // using the specified branch from the environment variables.
+                git url: "${REPO_URL}", branch: "${BRANCH_NAME}"
+            }
         }
 
         // Stage 2: Perform a security scan on the Infrastructure as Code (IaC) files using tfsec.
         stage('IaC Security Scan') {
-            sh 'tfsec ./terraform'
+            steps {
+                sh 'tfsec ./terraform'
+            }
         }
-        
-        // Stage 3: Configure the Kubernetes context to point to the Minikube cluster.
-        // This stage is crucial for ensuring subsequent kubectl and helm commands target the correct cluster.
+
+        // Stage 3: Configure the Kubernetes context.
         stage('Configure Kubernetes Context') {
-            echo "Generating kubeconfig file for Minikube cluster..."
-            // Create the .kube directory if it doesn't exist
-            sh 'mkdir -p /var/jenkins_home/.kube'
-            // Generate the kubeconfig file with paths relative to the container.
-            sh """
-              cat > /var/jenkins_home/.kube/config << EOF
-apiVersion: v1
-clusters:
-- cluster:
-    certificate-authority: /var/jenkins_home/.minikube/ca.crt
-    server: https://127.0.0.1:58986
-  name: devops-challenge
-contexts:
-- context:
-    cluster: devops-challenge
-    namespace: default
-    user: devops-challenge
-  name: devops-challenge
-current-context: devops-challenge
-kind: Config
-preferences: {}
-users:
-- name: devops-challenge
-  user:
-    client-certificate: /var/jenkins_home/.minikube/profiles/devops-challenge/client.crt
-    client-key: /var/jenkins_home/.minikube/profiles/devops-challenge/client.key
-EOF
-            """
-            // Set the KUBECONFIG environment variable to explicitly tell kubectl where to find the config file.
-            sh 'export KUBECONFIG=/var/jenkins_home/.kube/config && kubectl config use-context devops-challenge'
+            sh '''
+                export KUBECONFIG=/var/jenkins_home/.kube/config
+                kubectl config get-contexts
+                kubectl config use-context minikube
+                kubectl get nodes
+                # make sure namespaces exist (idempotent)
+                kubectl create ns staging --dry-run=client -o yaml | kubectl apply -f -
+                kubectl create ns production --dry-run=client -o yaml | kubectl apply -f -
+            '''
         }
+
 
         // Stage 4: Build and tag the Docker image.
         stage('Docker Build & Tag') {
-            // Assign values to the image tags using the build number, after the SCM checkout.
-            DOCKER_IMAGE_VERSIONED = "${REGISTRY_URL}/${APP_NAME}:${env.BUILD_NUMBER}"
-            DOCKER_IMAGE_LATEST    = "${REGISTRY_URL}/${APP_NAME}:latest"
-            DOCKER_IMAGE_STABLE    = "${REGISTRY_URL}/${APP_NAME}:stable"
+            // Define stage-specific variables.
+            steps {
+                script {
+                    def DOCKER_IMAGE_VERSIONED = "${REGISTRY_URL}/${APP_NAME}:${env.BUILD_NUMBER}"
+                    def DOCKER_IMAGE_LATEST    = "${REGISTRY_URL}/${APP_NAME}:latest"
+                    def DOCKER_IMAGE_STABLE    = "${REGISTRY_URL}/${APP_NAME}:stable"
 
-            echo "Building and tagging new image..."
-            // Build the Docker image from the application's Dockerfile.
-            sh "docker build --build-arg APP_VERSION=v1.${env.BUILD_NUMBER} -t ${DOCKER_IMAGE_VERSIONED} ./application"
-            
-            echo "Updating 'stable' tag..."
-            // This block attempts to update the 'stable' tag, which is used for production deployments.
-            // It's expected to fail gracefully on the first run.
-            try {
-                sh "docker pull ${DOCKER_IMAGE_LATEST}"
-                sh "docker tag ${DOCKER_IMAGE_LATEST} ${DOCKER_IMAGE_STABLE}"
-                sh "docker push ${DOCKER_IMAGE_STABLE}"
-            } catch (e) {
-                echo "Could not re-tag previous 'latest' to 'stable'. This is expected on the first run."
+                    echo "Building and tagging new image..."
+                    // Build the Docker image from the application's Dockerfile.
+                    sh "docker build --build-arg APP_VERSION=v1.${env.BUILD_NUMBER} -t ${DOCKER_IMAGE_VERSIONED} ./application"
+                    
+                    echo "Updating 'stable' tag..."
+                    // This block attempts to update the 'stable' tag, which is used for production deployments.
+                    // It's expected to fail gracefully on the first run.
+                    try {
+                        sh "docker pull ${DOCKER_IMAGE_LATEST}"
+                        sh "docker tag ${DOCKER_IMAGE_LATEST} ${DOCKER_IMAGE_STABLE}"
+                        sh "docker push ${DOCKER_IMAGE_STABLE}"
+                    } catch (e) {
+                        echo "Could not re-tag previous 'latest' to 'stable'. This is expected on the first run."
+                    }
+
+                    echo "Updating 'latest' tag..."
+                    // Tag the new versioned image as 'latest'.
+                    sh "docker tag ${DOCKER_IMAGE_VERSIONED} ${DOCKER_IMAGE_LATEST}"
+                    
+                    echo "Pushing all new tags to the local Docker registry..."
+                    // Push the newly created tags to the local Docker registry.
+                    sh "docker push ${DOCKER_IMAGE_VERSIONED}"
+                    sh "docker push ${DOCKER_IMAGE_LATEST}"
+                }
             }
-
-            echo "Updating 'latest' tag..."
-            // Tag the new versioned image as 'latest'.
-            sh "docker tag ${DOCKER_IMAGE_VERSIONED} ${DOCKER_IMAGE_LATEST}"
-            
-            echo "Pushing all new tags to the local registry..."
-            // Push the newly created tags to the local Docker registry.
-            sh "docker push ${DOCKER_IMAGE_VERSIONED}"
-            sh "docker push ${DOCKER_IMAGE_LATEST}"
         }
 
         // Stage 5: Scan the newly built Docker image for vulnerabilities using Trivy.
         stage('Image Security Scan') {
-            echo "Scanning versioned image for vulnerabilities..."
-            // Run a Trivy scan on the versioned image, exiting with code 0 even if vulnerabilities are found
-            // but logging them to the console.
-            sh "trivy image --exit-code 0 --severity HIGH,CRITICAL ${DOCKER_IMAGE_VERSIONED}"
+            steps {
+                script {
+                    def DOCKER_IMAGE_VERSIONED = "${REGISTRY_URL}/${APP_NAME}:${env.BUILD_NUMBER}"
+                    echo "Scanning versioned image for vulnerabilities..."
+                    // Run a Trivy scan on the versioned image, exiting with code 0 even if vulnerabilities are found
+                    // but logging them to the console.
+                    sh "trivy image --exit-code 0 --severity HIGH,CRITICAL ${DOCKER_IMAGE_VERSIONED}"
+                }
+            }
         }
 
-        // Stage 6: Deploy the application to a staging environment in the Minikube cluster using Helm.
+        // Stage 6: Syntax check.
+        stage('Helm Lint/Template') {
+            sh '''
+                helm lint ./kubernetes/helm-chart
+                helm template my-app-staging ./kubernetes/helm-chart \
+                -f kubernetes/helm-chart/values.yaml \
+                --set image.tag='test' --set replicaCount=1 \
+                --set config.welcomeMessage="Template Smoke Test"
+            '''
+        }
+
+        // Stage 7: Deploy to Staging.
         stage('Deploy to Staging') {
-            echo 'Deploying application to the staging namespace using Helm...'
-            sh """
-              helm upgrade --install my-app-staging ./kubernetes/helm-chart \\
-                --namespace staging \\
-                --set image.tag=${env.BUILD_NUMBER} \\
-                --set replicaCount=1 \\
-                --set config.welcomeMessage="Welcome to the STAGING Environment!"
-            """
+            // The withEnv block must be inside the steps block for a declarative pipeline.
+            steps {
+                withEnv(["KUBECONFIG=${env.KUBECONFIG_PATH}"]) {
+                    echo 'Deploying application to the staging namespace using Helm...'
+                    sh """
+                      helm upgrade --install my-app-staging ./kubernetes/helm-chart \\
+                        --namespace staging \\
+                        --set image.tag=${env.BUILD_NUMBER} \\
+                        --set replicaCount=1 \\
+                        --set config.welcomeMessage="Welcome to the STAGING Environment!"
+                        --wait --timeout 1m
+                    """
+                }
+            }
         }
 
-        // Stage 7: Manual approval for promotion to production.
+        // Stage 8: Manual approval for promotion to production.
         stage('Approval for Production') {
-            input message: 'Deploy to Production?', ok: 'Yes'
+            steps {
+                input message: 'Deploy to Production?', ok: 'Yes'
+            }
         }
 
-        // Stage 8: Deploy the stable version of the application to the production environment.
+        // Stage 9: Deploy the stable version of the application to the production environment.
         stage('Deploy to Production') {
-            echo 'Deploying application to the production namespace using Helm...'
-            sh """
-              helm upgrade --install my-app-production ./kubernetes/helm-chart \\
-                --namespace production \\
-                --set image.tag='stable' \\
-                --set replicaCount=3 \\
-                --set config.welcomeMessage="Welcome to the PRODUCTION Environment!"
-            """
+            // The withEnv block must be inside the steps block for a declarative pipeline.
+            steps {
+                withEnv(["KUBECONFIG=${env.KUBECONFIG_PATH}"]) {
+                    echo 'Deploying application to the production namespace using Helm...'
+                    sh """
+                      helm upgrade --install my-app-production ./kubernetes/helm-chart \\
+                        --namespace production \\
+                        --set image.tag='stable' \\
+                        --set replicaCount=3 \\
+                        --set config.welcomeMessage="Welcome to the PRODUCTION Environment!"
+                    """
+                }
+            }
         }
-    } catch (err) {
-        // This is a simple way to handle errors in a scripted pipeline.
-        echo "Pipeline failed: ${err}"
     }
 }
