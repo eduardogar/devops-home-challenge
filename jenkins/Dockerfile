@@ -29,4 +29,8 @@ RUN wget -qO- https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/
 RUN wget -q https://github.com/aquasecurity/tfsec/releases/download/v1.28.1/tfsec-linux-amd64 -O /usr/local/bin/tfsec && \
     chmod +x /usr/local/bin/tfsec
 
+# Permissions
+RUN groupadd -g 999 docker || true
+RUN usermod -a -G docker jenkins
+
 USER jenkins

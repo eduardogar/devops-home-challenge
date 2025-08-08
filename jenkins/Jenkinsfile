@@ -1,10 +1,5 @@
 pipeline {
-    agent {
-        docker {
-            image 'my-jenkins-docker-enabled'
-            args '-v //./pipe/docker_engine:/var/run/docker.sock -v /tmp:/tmp'
-        }
-    }
+    agent any
 
     environment {
         REGISTRY_URL = "host.docker.internal:5000"
@@ -25,6 +20,15 @@ pipeline {
         stage('IaC Security Scan') {
             steps {
                 sh 'tfsec ./terraform'
+            }
+        }
+        
+        stage('Configure Kubernetes Context') {
+            steps {
+                script {
+                    echo "Configuring kubectl to use the Minikube cluster context..."
+                    sh 'kubectl config use-context devops-challenge'
+                }
             }
         }
 
@@ -66,10 +70,10 @@ pipeline {
             steps {
                 echo 'Deploying application to the staging namespace using Helm...'
                 sh """
-                  helm upgrade --install my-app-staging ./kubernetes/helm-chart \
-                    --namespace staging \
-                    --set image.tag=${env.BUILD_NUMBER} \
-                    --set replicaCount=1 \
+                  helm upgrade --install my-app-staging ./kubernetes/helm-chart \\
+                    --namespace staging \\
+                    --set image.tag=${env.BUILD_NUMBER} \\
+                    --set replicaCount=1 \\
                     --set config.welcomeMessage="Welcome to the STAGING Environment!"
                 """
             }
@@ -85,10 +89,10 @@ pipeline {
             steps {
                 echo 'Deploying application to the production namespace using Helm...'
                 sh """
-                  helm upgrade --install my-app-production ./kubernetes/helm-chart \
-                    --namespace production \
-                    --set image.tag='stable' \
-                    --set replicaCount=3 \
+                  helm upgrade --install my-app-production ./kubernetes/helm-chart \\
+                    --namespace production \\
+                    --set image.tag='stable' \\
+                    --set replicaCount=3 \\
                     --set config.welcomeMessage="Welcome to the PRODUCTION Environment!"
                 """
             }

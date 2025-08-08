@@ -1,65 +1,73 @@
-# 1. Define required providers for Docker and Minikube
 terraform {
   required_providers {
-    minikube = {
-      source = "scott-the-programmer/minikube"
-    }
     docker = {
-      source = "kreuzwerker/docker"
+      source  = "kreuzwerker/docker"
+      version = "~> 3.0"
     }
   }
 }
 
-# 2. Provision the Minikube Kubernetes cluster
-resource "minikube_cluster" "devops_challenge" {
-  cluster_name       = "devops-challenge-cluster"
-  driver             = "docker"
-  kubernetes_version = "v1.28.3"
-  memory             = "6g"
-  cpus               = "4"
+# Use the Unix socket available in WSL
+provider "docker" {
+  host = "unix:///var/run/docker.sock"
 }
 
-# 3. Provision a local Docker registry
+# Local registry
 resource "docker_image" "registry_image" {
   name = "registry:2"
 }
 
 resource "docker_container" "local_registry" {
   name  = "local-registry"
-  image = docker_image.registry_image.image_id
+  image = docker_image.registry_image.name
+
   ports {
     internal = 5000
     external = 5000
   }
 }
 
-# 4. Provision the Jenkins server
+# Build your Jenkins image from ../jenkins/Dockerfile (relative to terraform/)
 resource "docker_image" "jenkins_image" {
-  name = "my-jenkins-docker-enabled:latest" 
-  build {
-    context = "../jenkins" 
-  }
+  name = "my-jenkins-docker-enabled:latest"
+  build { context = "../jenkins" }
 }
 
+# Run Jenkins; mount Docker socket and kubeconfig
 resource "docker_container" "jenkins_server" {
   name  = "jenkins"
-  image = docker_image.jenkins_image.name 
+  image = docker_image.jenkins_image.name
+
+  # Easiest for local dev to avoid socket perms:
+  user = "0:0"
+
   ports {
     internal = 8080
     external = 8080
   }
+
   ports {
     internal = 50000
     external = 50000
   }
+
   volumes {
     host_path      = "/var/run/docker.sock"
     container_path = "/var/run/docker.sock"
   }
+
+  # Mount the local ~/.kube directory into the container
   volumes {
-    volume_name    = "jenkins_home"
+    host_path      = "/home/egarcia/.kube"
+    container_path = "/var/jenkins_home/.kube"
+  }
+
+  volumes {
+    volume_name    = docker_volume.jenkins_home.name
     container_path = "/var/jenkins_home"
   }
+
+  depends_on = [docker_container.local_registry]
 }
 
 resource "docker_volume" "jenkins_home" {
