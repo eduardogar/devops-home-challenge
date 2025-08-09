@@ -122,6 +122,7 @@ pipeline {
                 withEnv(["KUBECONFIG=${env.KUBECONFIG_PATH}"]) {
                     echo 'Deploying application to the staging namespace using Helm...'
                     sh """
+                      echo $KUBECONFIG  
                       helm upgrade --install my-app-staging ./kubernetes/helm-chart \\
                         --namespace staging \\
                         --set image.tag=${env.BUILD_NUMBER} \\
