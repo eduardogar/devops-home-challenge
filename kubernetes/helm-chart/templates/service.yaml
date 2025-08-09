@@ -7,24 +7,24 @@ metadata:
       {{ .Chart.Name }}
     app.kubernetes.io/instance: 
       {{ .Release.Name }}
-  {{- with .values.service.annotations }}
+  {{- with .Values.service.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
   type: 
-    {{ .values.service.type | default "ClusterIP" }}
+    {{ .Values.service.type | default "ClusterIP" }}
   ports:
     - name: http
       port: 
-        {{ .values.service.port | default 80 }}
+        {{ .Values.service.port | default 80 }}
       targetPort: 
-        {{ .values.containerPort | default 80 }}
+        {{ .Values.containerPort | default 80 }}
       protocol: 
         TCP
-      {{- if and (eq (.values.service.type | default "ClusterIP") "NodePort") (.values.service.nodePort) }}
+      {{- if and (eq (.Values.service.type | default "ClusterIP") "NodePort") (.Values.service.nodePort) }}
       nodePort: 
-        {{ .values.service.nodePort }}
+        {{ .Values.service.nodePort }}
       {{- end }}
   selector:
     app.kubernetes.io/name: 
