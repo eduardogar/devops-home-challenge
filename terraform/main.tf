@@ -12,6 +12,19 @@ provider "docker" {
   host = "unix:///var/run/docker.sock"
 }
 
+# Start Minikube via local-exec (no flaky provider)
+resource "null_resource" "minikube_start" {
+  triggers = { always = timestamp() }
+  provisioner "local-exec" {
+    # Added --v=9 for verbose Minikube logging
+    command = "minikube start --profile=devops-challenge --driver=docker --kubernetes-version=v1.28.3 --memory=6144 --cpus=4 --v=9"
+  }
+  provisioner "local-exec" {
+    when    = destroy
+    command = "minikube delete --profile=devops-challenge || true"
+  }
+}
+
 # Local registry
 resource "docker_image" "registry_image" {
   name = "registry:2"
@@ -73,7 +86,11 @@ resource "docker_container" "jenkins_server" {
     container_path = "/var/jenkins_home"
   }
 
-  depends_on = [docker_container.local_registry]
+  # Ensure the Jenkins container waits for Minikube to start
+  depends_on = [
+    docker_container.local_registry,
+    null_resource.minikube_start
+  ]
 }
 
 resource "docker_volume" "jenkins_home" {

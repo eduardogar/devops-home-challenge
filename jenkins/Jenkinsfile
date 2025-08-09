@@ -1,15 +1,19 @@
 // This Jenkinsfile defines a declarative pipeline for building, testing, and deploying a Docker application.
 // The pipeline is configured to run on the Jenkins master node using 'agent any'.
 pipeline {
-    // This agent directive tells Jenkins to run the pipeline on any available agent.
+    // The pipeline will run on any available agent (in this case, the Jenkins master container).
     agent any
 
-    // Define environment variables. These are available to all stages.
+    // Define environment variables that are available to all stages.
     environment {
-        REPO_URL     = 'https://github.com/eduardogar/devops-home-challenge.git'
-        BRANCH_NAME  = 'main'
-        REGISTRY_URL = 'host.docker.internal:5000'
-        APP_NAME     = 'devops-challenge-app'
+        REPO_URL             = 'https://github.com/eduardogar/devops-home-challenge.git'
+        BRANCH_NAME          = 'main'
+        REGISTRY_URL         = 'host.docker.internal:5000'
+        APP_NAME             = 'devops-challenge-app'
+        KUBECONFIG           = '/var/jenkins_home/.kube/config'
+        DOCKER_IMAGE_VERSIONED = "${REGISTRY_URL}/${APP_NAME}:${env.BUILD_NUMBER}"
+        DOCKER_IMAGE_LATEST    = "${REGISTRY_URL}/${APP_NAME}:latest"
+        DOCKER_IMAGE_STABLE    = "${REGISTRY_URL}/${APP_NAME}:stable"
     }
 
     stages {
@@ -17,7 +21,6 @@ pipeline {
         stage('Code Checkout') {
             steps {
                 // This step clears the workspace before a new build starts.
-                // This is important to ensure no leftover files from a previous run interfere with the current build.
                 cleanWs()
 
                 // This step performs the equivalent of 'git clone' using the Jenkins Git plugin,
@@ -34,11 +37,10 @@ pipeline {
         }
 
         // Stage 3: Configure the Kubernetes context.
+        // This stage now only needs to set the context, as the KUBECONFIG variable is globally set.
         stage('Configure Kubernetes Context') {
             steps{
                 sh """
-                export KUBECONFIG=/var/jenkins_home/.kube/config
-                kubectl config get-contexts
                 kubectl config use-context devops-challenge
                 kubectl get nodes
                 # make sure namespaces exist (idempotent)
@@ -48,16 +50,10 @@ pipeline {
             }
         }
 
-
         // Stage 4: Build and tag the Docker image.
         stage('Docker Build & Tag') {
-            // Define stage-specific variables.
             steps {
                 script {
-                    def DOCKER_IMAGE_VERSIONED = "${REGISTRY_URL}/${APP_NAME}:${env.BUILD_NUMBER}"
-                    def DOCKER_IMAGE_LATEST    = "${REGISTRY_URL}/${APP_NAME}:latest"
-                    def DOCKER_IMAGE_STABLE    = "${REGISTRY_URL}/${APP_NAME}:stable"
-
                     echo "Building and tagging new image..."
                     // Build the Docker image from the application's Dockerfile.
                     sh "docker build --build-arg APP_VERSION=v1.${env.BUILD_NUMBER} -t ${DOCKER_IMAGE_VERSIONED} ./application"
@@ -89,7 +85,6 @@ pipeline {
         stage('Image Security Scan') {
             steps {
                 script {
-                    def DOCKER_IMAGE_VERSIONED = "${REGISTRY_URL}/${APP_NAME}:${env.BUILD_NUMBER}"
                     echo "Scanning versioned image for vulnerabilities..."
                     // Run a Trivy scan on the versioned image, exiting with code 0 even if vulnerabilities are found
                     // but logging them to the console.
@@ -111,26 +106,21 @@ pipeline {
                 -f kubernetes/helm-chart/values.yaml \\
                 --set image.tag='test' --set replicaCount=1 \\
                 --set config.welcomeMessage="Template Smoke Test"
-                """         
+                """
             }
         }
 
         // Stage 7: Deploy to Staging.
         stage('Deploy to Staging') {
-            // The withEnv block must be inside the steps block for a declarative pipeline.
             steps {
-                withEnv(["KUBECONFIG=${env.KUBECONFIG_PATH}"]) {
-                    echo 'Deploying application to the staging namespace using Helm...'
-                    sh """
-                      echo $KUBECONFIG  
-                      helm upgrade --install my-app-staging ./kubernetes/helm-chart \\
-                        --namespace staging \\
-                        --set image.tag=${env.BUILD_NUMBER} \\
-                        --set replicaCount=1 \\
-                        --set config.welcomeMessage="Welcome to the STAGING Environment!"
-                        --wait --timeout 1m
-                    """
-                }
+                echo 'Deploying application to the staging namespace using Helm...'
+                sh """
+                  helm upgrade --install my-app-staging ./kubernetes/helm-chart \\
+                    --namespace staging \\
+                    --set image.tag=${env.BUILD_NUMBER} \\
+                    --set replicaCount=1 \\
+                    --set config.welcomeMessage="Welcome to the STAGING Environment!"
+                """
             }
         }
 
@@ -143,18 +133,15 @@ pipeline {
 
         // Stage 9: Deploy the stable version of the application to the production environment.
         stage('Deploy to Production') {
-            // The withEnv block must be inside the steps block for a declarative pipeline.
             steps {
-                withEnv(["KUBECONFIG=${env.KUBECONFIG_PATH}"]) {
-                    echo 'Deploying application to the production namespace using Helm...'
-                    sh """
-                      helm upgrade --install my-app-production ./kubernetes/helm-chart \\
-                        --namespace production \\
-                        --set image.tag='stable' \\
-                        --set replicaCount=3 \\
-                        --set config.welcomeMessage="Welcome to the PRODUCTION Environment!"
-                    """
-                }
+                echo 'Deploying application to the production namespace using Helm...'
+                sh """
+                  helm upgrade --install my-app-production ./kubernetes/helm-chart \\
+                    --namespace production \\
+                    --set image.tag='stable' \\
+                    --set replicaCount=3 \\
+                    --set config.welcomeMessage="Welcome to the PRODUCTION Environment!"
+                """
             }
         }
     }
