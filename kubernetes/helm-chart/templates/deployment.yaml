@@ -4,7 +4,7 @@ metadata:
   # The deployment name is now simply the chart name.
   name: {{ .Chart.Name }}
 spec:
-  replicas: {{ .values.replicaCount }}
+  replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
       # The selector labels are now explicitly defined.
@@ -19,8 +19,8 @@ spec:
     spec:
       containers:
         - name: {{ .Chart.Name }}
-          image: "{{ .values.image.repository }}:{{ .values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .values.image.pullPolicy }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: 8000
           env:
@@ -39,4 +39,4 @@ spec:
               path: /health
               port: 8000
           resources:
-            {{- toYaml .values.resources | nindent 12 }}
+            {{- toYaml .Values.resources | nindent 12 }}

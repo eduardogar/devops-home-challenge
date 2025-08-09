@@ -4,13 +4,13 @@ metadata:
   name: {{ .Release.Name }}-ingress
 spec:
   rules:
-    - host: {{ .values.ingress.host | quote }}
+    - host: {{ .Values.ingress.host | quote }}
       http:
         paths:
-          - path: {{ .values.ingress.path }}
-            pathType: {{ .values.ingress.pathType }}
+          - path: {{ .Values.ingress.path }}
+            pathType: {{ .Values.ingress.pathType }}
             backend:
               service:
                 name: {{ .Release.Name }}-service
                 port:
-                  number: {{ .values.service.port }}
+                  number: {{ .Values.service.port }}

@@ -8,4 +8,4 @@ metadata:
     app.kubernetes.io/name: {{ .Chart.Name }}
     app.kubernetes.io/instance: {{ .Release.Name }}
 data:
-  WELCOME_MESSAGE: {{ .values.config.welcomeMessage | quote }}
+  WELCOME_MESSAGE: {{ .Values.config.welcomeMessage | quote }}

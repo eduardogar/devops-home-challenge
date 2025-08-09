@@ -104,6 +104,8 @@ pipeline {
                 sh """
                 ls -l kubernetes/helm-chart/
                 ls -l kubernetes/helm-chart/values.yaml
+                cat kubernetes/helm-chart/values.yaml
+                cat kubernetes/helm-chart/templates/service.yaml
                 helm lint ./kubernetes/helm-chart
                 helm template my-app-staging ./kubernetes/helm-chart \\
                 -f kubernetes/helm-chart/values.yaml \\
