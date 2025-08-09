@@ -16,6 +16,10 @@ pipeline {
         // Stage 1: Checkout the source code from the repository.
         stage('Code Checkout') {
             steps {
+                // This step clears the workspace before a new build starts.
+                // This is important to ensure no leftover files from a previous run interfere with the current build.
+                cleanWs()
+
                 // This step performs the equivalent of 'git clone' using the Jenkins Git plugin,
                 // using the specified branch from the environment variables.
                 git url: "${REPO_URL}", branch: "${BRANCH_NAME}"
@@ -31,15 +35,17 @@ pipeline {
 
         // Stage 3: Configure the Kubernetes context.
         stage('Configure Kubernetes Context') {
-            sh '''
+            steps{
+                sh """
                 export KUBECONFIG=/var/jenkins_home/.kube/config
                 kubectl config get-contexts
-                kubectl config use-context minikube
+                kubectl config use-context devops-challenge
                 kubectl get nodes
                 # make sure namespaces exist (idempotent)
                 kubectl create ns staging --dry-run=client -o yaml | kubectl apply -f -
                 kubectl create ns production --dry-run=client -o yaml | kubectl apply -f -
-            '''
+                """
+            }
         }
 
 
@@ -94,13 +100,15 @@ pipeline {
 
         // Stage 6: Syntax check.
         stage('Helm Lint/Template') {
-            sh '''
+            steps{
+                sh """
                 helm lint ./kubernetes/helm-chart
-                helm template my-app-staging ./kubernetes/helm-chart \
-                -f kubernetes/helm-chart/values.yaml \
-                --set image.tag='test' --set replicaCount=1 \
+                helm template my-app-staging ./kubernetes/helm-chart \\
+                -f kubernetes/helm-chart/values.yaml \\
+                --set image.tag='test' --set replicaCount=1 \\
                 --set config.welcomeMessage="Template Smoke Test"
-            '''
+                """         
+            }
         }
 
         // Stage 7: Deploy to Staging.
@@ -143,6 +151,16 @@ pipeline {
                     """
                 }
             }
+        }
+    }
+    // This 'post' section runs after the build finishes, regardless of the outcome.
+    post {
+        // The 'always' condition ensures the 'cleanWs' step is executed every time.
+        always {
+            echo "Cleaning up the workspace..."
+            // The 'cleanWs' step removes all files from the workspace,
+            // preparing it for the next build.
+            cleanWs()
         }
     }
 }
