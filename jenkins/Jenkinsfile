@@ -102,6 +102,8 @@ pipeline {
         stage('Helm Lint/Template') {
             steps{
                 sh """
+                ls -l kubernetes/helm-chart/
+                ls -l kubernetes/helm-chart/values.yaml
                 helm lint ./kubernetes/helm-chart
                 helm template my-app-staging ./kubernetes/helm-chart \\
                 -f kubernetes/helm-chart/values.yaml \\

@@ -9,6 +9,8 @@ image:
 service:
   type: ClusterIP
   port: 80
+  # Adding the annotations block to prevent the nil pointer error.
+  annotations: {}
 
 ingress:
   enabled: true
