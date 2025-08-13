@@ -6,11 +6,10 @@ pipeline {
 
     // Define environment variables that are available to all stages.
     environment {
-        REPO_URL             = 'https://github.com/eduardogar/devops-home-challenge.git'
-        BRANCH_NAME          = 'main'
-        REGISTRY_URL         = 'host.docker.internal:5000'
-        APP_NAME             = 'devops-challenge-app'
-        KUBECONFIG           = '/var/jenkins_home/.kube/config'
+        REPO_URL           = 'https://github.com/eduardogar/devops-home-challenge.git'
+        BRANCH_NAME        = 'main'
+        REGISTRY_URL       = 'host.docker.internal:5000'
+        APP_NAME           = 'devops-challenge-app'
         DOCKER_IMAGE_VERSIONED = "${REGISTRY_URL}/${APP_NAME}:${env.BUILD_NUMBER}"
         DOCKER_IMAGE_LATEST    = "${REGISTRY_URL}/${APP_NAME}:latest"
         DOCKER_IMAGE_STABLE    = "${REGISTRY_URL}/${APP_NAME}:stable"
@@ -36,13 +35,44 @@ pipeline {
             }
         }
 
-        // Stage 3: Configure the Kubernetes context.
-        // This stage now only needs to set the context, as the KUBECONFIG variable is globally set.
+        // Stage 3: Configure the Kubernetes Context.
         stage('Configure Kubernetes Context') {
             steps{
                 sh """
+                # Set KUBECONFIG to a new file in the workspace
+                export KUBECONFIG=${WORKSPACE}/kubeconfig
+                
+                # Now, generate a corrected kubeconfig file that uses the Minikube IP address and
+                # embeds the client certificates and keys directly.
+                cat > ${WORKSPACE}/kubeconfig << EOF
+apiVersion: v1
+clusters:
+- cluster:
+    server: https://devops-challenge:8443
+    insecure-skip-tls-verify: true
+  name: devops-challenge
+contexts:
+- context:
+    cluster: devops-challenge
+    namespace: default
+    user: devops-challenge
+  name: devops-challenge
+current-context: devops-challenge
+kind: Config
+preferences: {}
+users:
+- name: devops-challenge
+  user:
+    client-certificate-data: \$(cat /var/jenkins_home/.minikube/profiles/devops-challenge/client.crt | base64 -w0)
+    client-key-data: \$(cat /var/jenkins_home/.minikube/profiles/devops-challenge/client.key | base64 -w0)
+EOF
+                # Now that the context is created, we can use it.
                 kubectl config use-context devops-challenge
+                kubectl --kubeconfig "$WORKSPACE/kubeconfig" cluster-info
+                kubectl --kubeconfig "$WORKSPACE/kubeconfig" get nodes
+
                 kubectl get nodes
+                
                 # make sure namespaces exist (idempotent)
                 kubectl create ns staging --dry-run=client -o yaml | kubectl apply -f -
                 kubectl create ns production --dry-run=client -o yaml | kubectl apply -f -
@@ -117,9 +147,11 @@ pipeline {
                 sh """
                   helm upgrade --install my-app-staging ./kubernetes/helm-chart \\
                     --namespace staging \\
+                    --set image.repository=${REGISTRY_URL}/${APP_NAME} \\
                     --set image.tag=${env.BUILD_NUMBER} \\
                     --set replicaCount=1 \\
-                    --set config.welcomeMessage="Welcome to the STAGING Environment!"
+                    --set config.welcomeMessage="Welcome to the STAGING Environment!" \\
+                    --kubeconfig ${WORKSPACE}/kubeconfig
                 """
             }
         }
@@ -138,9 +170,11 @@ pipeline {
                 sh """
                   helm upgrade --install my-app-production ./kubernetes/helm-chart \\
                     --namespace production \\
+                    --set image.repository=${REGISTRY_URL}/${APP_NAME} \\
                     --set image.tag='stable' \\
                     --set replicaCount=3 \\
-                    --set config.welcomeMessage="Welcome to the PRODUCTION Environment!"
+                    --set config.welcomeMessage="Welcome to the PRODUCTION Environment!" \\
+                    --kubeconfig ${WORKSPACE}/kubeconfig
                 """
             }
         }

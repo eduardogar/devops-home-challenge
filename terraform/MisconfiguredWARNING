@@ -1,0 +1,25 @@
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority: /home/egarcia/.minikube/ca.crt
+    extensions:
+    - extension:
+        last-update: Sun, 10 Aug 2025 15:06:03 CST
+        provider: minikube.sigs.k8s.io
+        version: v1.36.0
+      name: cluster_info
+    server: https://127.0.0.1:63549
+  name: devops-challenge
+contexts:
+- context:
+    cluster: devops-challenge
+    user: devops-challenge
+  name: devops-challenge
+current-context: devops-challenge
+kind: Config
+preferences: {}
+users:
+- name: devops-challenge
+  user:
+    client-certificate: /home/egarcia/.minikube/profiles/devops-challenge/client.crt
+    client-key: /home/egarcia/.minikube/profiles/devops-challenge/client.key

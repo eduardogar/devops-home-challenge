@@ -7,23 +7,74 @@ terraform {
   }
 }
 
+locals {
+  local_registry = "host.docker.internal:5000"
+}
+
 # Use the Unix socket available in WSL
 provider "docker" {
   host = "unix:///var/run/docker.sock"
 }
 
-# Start Minikube via local-exec (no flaky provider)
 resource "null_resource" "minikube_start" {
   triggers = { always = timestamp() }
+
   provisioner "local-exec" {
-    # Added --v=9 for verbose Minikube logging
-    command = "minikube start --profile=devops-challenge --driver=docker --kubernetes-version=v1.28.3 --memory=6144 --cpus=4 --v=9"
+    interpreter = ["/bin/bash", "-lc"]
+    command     = <<-EOT
+      # Be strict; tolerate shells without pipefail
+      set -eu
+      set -o pipefail >/dev/null 2>&1 || true
+
+      # 1) Start Minikube (Docker runtime) and allow your local HTTP registry
+      minikube start --profile=devops-challenge --driver=docker --container-runtime=docker --kubernetes-version=v1.28.3 --memory=6144 --cpus=4 --v=9 --insecure-registry=host.docker.internal:5000
+
+      # 2) If the node's Docker doesn't show the registry, add a systemd drop-in and restart
+      if ! minikube ssh -p devops-challenge -- docker info 2>/dev/null | grep -q "host.docker.internal:5000"; then
+        echo "Registry host.docker.internal:5000 not listed; creating drop-in on the node..."
+
+        # Run a privileged script inside the node (no Terraform interpolation inside this block)
+        minikube ssh -p devops-challenge -- "sudo REG='host.docker.internal:5000' bash -s" <<'SCRIPT'
+set -eu
+set -o pipefail >/dev/null 2>&1 || true
+
+# Remove conflicting JSON config if present
+rm -f /etc/docker/daemon.json || true
+
+# Find docker.service unit and extract ExecStart (no DBus required)
+UNIT=""
+for f in /etc/systemd/system/docker.service /lib/systemd/system/docker.service /usr/lib/systemd/system/docker.service; do
+  [ -f "$f" ] && UNIT="$f" && break
+done
+[ -n "$UNIT" ] || { echo "docker.service unit not found"; exit 1; }
+
+CUR="$(sed -n 's/^ExecStart=//p' "$UNIT" | tail -n1)"
+
+mkdir -p /etc/systemd/system/docker.service.d
+printf "[Service]\nExecStart=\nExecStart=%s --insecure-registry=%s\n" "$CUR" "$REG" \
+  > /etc/systemd/system/docker.service.d/99-insecure-registry.conf
+
+systemctl daemon-reload
+systemctl restart docker
+systemctl restart cri-docker || systemctl restart cri-dockerd || true
+systemctl restart kubelet || true
+SCRIPT
+      fi
+
+      # 3) Sanity checks
+      minikube ssh -p devops-challenge -- 'docker info 2>/dev/null | sed -n "/Insecure Registries/,+4p"'
+      curl -sI http://host.docker.internal:5000/v2/ || true
+    EOT
   }
+
   provisioner "local-exec" {
-    when    = destroy
-    command = "minikube delete --profile=devops-challenge || true"
+    when        = destroy
+    interpreter = ["/bin/bash", "-lc"]
+    command     = "minikube delete --profile=devops-challenge || true"
   }
 }
+
+
 
 # Local registry
 resource "docker_image" "registry_image" {
@@ -71,13 +122,13 @@ resource "docker_container" "jenkins_server" {
 
   # Mount the local ~/.kube directory into the container
   volumes {
-    host_path      = "/home/egarcia/.kube"
+    host_path      = "/home/egarcia/.kube-copy"
     container_path = "/var/jenkins_home/.kube"
   }
   
   # Mount the local ~/.minikube directory into the container to get the certificate files
   volumes {
-    host_path      = "/home/egarcia/.minikube"
+    host_path      = "/home/egarcia/.minikube-copy"
     container_path = "/var/jenkins_home/.minikube"
   }
 
