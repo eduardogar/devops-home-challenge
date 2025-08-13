@@ -17,9 +17,9 @@ spec:
   ports:
     - name: http
       port: 
-        {{ .Values.service.port | default 80 }}
+        {{ .Values.service.port }}
       targetPort: 
-        {{ .Values.containerPort | default 80 }}
+        {{ .Values.service.targetPort | default .Values.service.port }}
       protocol: 
         TCP
       {{- if and (eq (.Values.service.type | default "ClusterIP") "NodePort") (.Values.service.nodePort) }}

@@ -33,7 +33,9 @@ service:
 ingress:
   enabled: true
   className: nginx
-  annotations: {}
+  annotations: {
+    nginx.ingress.kubernetes.io/service-upstream: "true"
+  }
   host: "my-app.local"
   path: "/"
   pathType: Prefix
