@@ -35,6 +35,32 @@ pipeline {
             }
         }
 
+        // NEW: Stage 2.5 Ensure Docker network and API relay exist (idempotent)
+        stage('Docker Network & API Relay') {
+            steps {
+                sh """
+                set -e
+
+                # Create network (no-op if it already exists)
+                docker network create devops-net || true
+
+                # Attach containers (no-op if already attached)
+                docker network connect devops-net jenkins || true
+                docker network connect devops-net local-registry || true
+                docker network connect devops-net devops-challenge || true
+
+                # Recreate API relay that exposes 0.0.0.0:8443 -> 127.0.0.1:8443 in the minikube node
+                docker rm -f k8s-apiserver-relay 2>/dev/null || true
+                docker run -d --name k8s-apiserver-relay --restart unless-stopped \\
+                  --network container:devops-challenge alpine/socat \\
+                  TCP-LISTEN:8443,fork,reuseaddr TCP:127.0.0.1:8443
+
+                # Quick reachability probe (prints NOT reachable if fails)
+                bash -lc 'getent hosts devops-challenge; (echo > /dev/tcp/devops-challenge/8443) >/dev/null 2>&1 && echo "API :8443 reachable" || echo "API :8443 NOT reachable"'
+                """
+            }
+        }
+
         // Stage 3: Configure the Kubernetes Context.
         stage('Configure Kubernetes Context') {
             steps{
@@ -145,13 +171,20 @@ EOF
             steps {
                 echo 'Deploying application to the staging namespace using Helm...'
                 sh """
-                  helm upgrade --install my-app-staging ./kubernetes/helm-chart \\
-                    --namespace staging \\
-                    --set image.repository=${REGISTRY_URL}/${APP_NAME} \\
-                    --set image.tag=${env.BUILD_NUMBER} \\
-                    --set replicaCount=1 \\
-                    --set config.welcomeMessage="Welcome to the STAGING Environment!" \\
-                    --kubeconfig ${WORKSPACE}/kubeconfig
+                    helm upgrade --install my-app-staging ./kubernetes/helm-chart \
+                      --namespace staging \
+                      --set image.repository=${REGISTRY_URL}/${APP_NAME} \
+                      --set image.tag=${env.BUILD_NUMBER} \
+                      --set replicaCount=1 \
+                      --set-string config.welcomeMessage="Welcome to the STAGING Environment!" \
+                      --set service.port=80 \
+                      --set service.targetPort=8080 \
+                      --set ingress.enabled=true \
+                      --set ingress.className=nginx \
+                      --set ingress.host=my-app-staging.local \
+                      --set ingress.path=/ \
+                      --set ingress.pathType=Prefix \
+                      --kubeconfig ${WORKSPACE}/kubeconfig
                 """
             }
         }
@@ -168,13 +201,20 @@ EOF
             steps {
                 echo 'Deploying application to the production namespace using Helm...'
                 sh """
-                  helm upgrade --install my-app-production ./kubernetes/helm-chart \\
-                    --namespace production \\
-                    --set image.repository=${REGISTRY_URL}/${APP_NAME} \\
-                    --set image.tag='stable' \\
-                    --set replicaCount=3 \\
-                    --set config.welcomeMessage="Welcome to the PRODUCTION Environment!" \\
-                    --kubeconfig ${WORKSPACE}/kubeconfig
+                    helm upgrade --install my-app-production ./kubernetes/helm-chart \
+                      --namespace production \
+                      --set image.repository=${REGISTRY_URL}/${APP_NAME} \
+                      --set image.tag=stable \
+                      --set replicaCount=3 \
+                      --set-string config.welcomeMessage="Welcome to the PRODUCTION Environment!" \
+                      --set service.port=80 \
+                      --set service.targetPort=8080 \
+                      --set ingress.enabled=true \
+                      --set ingress.className=nginx \
+                      --set ingress.host=my-app.local \
+                      --set ingress.path=/ \
+                      --set ingress.pathType=Prefix \
+                      --kubeconfig ${WORKSPACE}/kubeconfig
                 """
             }
         }

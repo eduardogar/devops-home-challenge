@@ -38,6 +38,7 @@ securityContext: {}
 service:
   type: ClusterIP
   port: 80
+  targetPort: 8080 
   # Added the annotations block to prevent the nil pointer error.
   annotations: {}
 
