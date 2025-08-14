@@ -1,7 +1,5 @@
-// This Jenkinsfile defines a declarative pipeline for building, testing, and deploying a Docker application.
-// The pipeline is configured to run on the Jenkins master node using 'agent any'.
 pipeline {
-    // The pipeline will run on any available agent (in this case, the Jenkins master container).
+
     agent any
 
     // Define environment variables that are available to all stages.
@@ -19,11 +17,9 @@ pipeline {
         // Stage 1: Checkout the source code from the repository.
         stage('Code Checkout') {
             steps {
-                // This step clears the workspace before a new build starts.
+
                 cleanWs()
 
-                // This step performs the equivalent of 'git clone' using the Jenkins Git plugin,
-                // using the specified branch from the environment variables.
                 git url: "${REPO_URL}", branch: "${BRANCH_NAME}"
             }
         }
@@ -35,7 +31,7 @@ pipeline {
             }
         }
 
-        // NEW: Stage 2.5 Ensure Docker network and API relay exist (idempotent)
+        // Stage 2.5 Ensure Docker network and API relay exist 
         stage('Docker Network & API Relay') {
             steps {
                 sh """
@@ -67,9 +63,8 @@ pipeline {
                 sh """
                 # Set KUBECONFIG to a new file in the workspace
                 export KUBECONFIG=${WORKSPACE}/kubeconfig
-                
-                # Now, generate a corrected kubeconfig file that uses the Minikube IP address and
-                # embeds the client certificates and keys directly.
+
+                # Generate kubeconfig that points to the Minikube node and embeds client certs/keys
                 cat > ${WORKSPACE}/kubeconfig << EOF
 apiVersion: v1
 clusters:
@@ -92,13 +87,12 @@ users:
     client-certificate-data: \$(cat /var/jenkins_home/.minikube/profiles/devops-challenge/client.crt | base64 -w0)
     client-key-data: \$(cat /var/jenkins_home/.minikube/profiles/devops-challenge/client.key | base64 -w0)
 EOF
-                # Now that the context is created, we can use it.
                 kubectl config use-context devops-challenge
                 kubectl --kubeconfig "$WORKSPACE/kubeconfig" cluster-info
                 kubectl --kubeconfig "$WORKSPACE/kubeconfig" get nodes
 
                 kubectl get nodes
-                
+
                 # make sure namespaces exist (idempotent)
                 kubectl create ns staging --dry-run=client -o yaml | kubectl apply -f -
                 kubectl create ns production --dry-run=client -o yaml | kubectl apply -f -
@@ -111,12 +105,9 @@ EOF
             steps {
                 script {
                     echo "Building and tagging new image..."
-                    // Build the Docker image from the application's Dockerfile.
                     sh "docker build --build-arg APP_VERSION=v1.${env.BUILD_NUMBER} -t ${DOCKER_IMAGE_VERSIONED} ./application"
-                    
+
                     echo "Updating 'stable' tag..."
-                    // This block attempts to update the 'stable' tag, which is used for production deployments.
-                    // It's expected to fail gracefully on the first run.
                     try {
                         sh "docker pull ${DOCKER_IMAGE_LATEST}"
                         sh "docker tag ${DOCKER_IMAGE_LATEST} ${DOCKER_IMAGE_STABLE}"
@@ -126,11 +117,9 @@ EOF
                     }
 
                     echo "Updating 'latest' tag..."
-                    // Tag the new versioned image as 'latest'.
                     sh "docker tag ${DOCKER_IMAGE_VERSIONED} ${DOCKER_IMAGE_LATEST}"
-                    
+
                     echo "Pushing all new tags to the local Docker registry..."
-                    // Push the newly created tags to the local Docker registry.
                     sh "docker push ${DOCKER_IMAGE_VERSIONED}"
                     sh "docker push ${DOCKER_IMAGE_LATEST}"
                 }
@@ -142,8 +131,6 @@ EOF
             steps {
                 script {
                     echo "Scanning versioned image for vulnerabilities..."
-                    // Run a Trivy scan on the versioned image, exiting with code 0 even if vulnerabilities are found
-                    // but logging them to the console.
                     sh "trivy image --exit-code 0 --severity HIGH,CRITICAL ${DOCKER_IMAGE_VERSIONED}"
                 }
             }
@@ -166,24 +153,48 @@ EOF
             }
         }
 
-        // Stage 7: Deploy to Staging.
+        // Stage 7: Deploy reverse proxy.
+        stage('Ingress Controller as LoadBalancer') {
+            steps {
+                sh '''
+                  set -euo 
+
+                  # Verify controller exists 
+                  if ! kubectl --kubeconfig "${WORKSPACE}/kubeconfig" -n ingress-nginx get deploy ingress-nginx-controller >/dev/null 2>&1; then
+                    echo "ERROR: ingress-nginx controller not found. Enable it on the host:  minikube -p devops-challenge addons enable ingress"
+                    exit 1
+                  fi
+
+                  # Apply LB patch 
+                  kubectl --kubeconfig "${WORKSPACE}/kubeconfig" apply -f "kubernetes/ingress-nginx-lb.yaml"
+
+                  # Wait for controller rollout
+                  kubectl --kubeconfig "${WORKSPACE}/kubeconfig" -n ingress-nginx rollout status deploy/ingress-nginx-controller --timeout=120s || true
+
+                  # Show the service (EXTERNAL-IP will be <pending> until `minikube tunnel` runs on the host)
+                  kubectl --kubeconfig "${WORKSPACE}/kubeconfig" -n ingress-nginx get svc ingress-nginx-controller -o wide
+                '''
+            }
+        }
+
+        // Stage 8: Deploy to Staging.
         stage('Deploy to Staging') {
             steps {
                 echo 'Deploying application to the staging namespace using Helm...'
                 sh """
-                    helm upgrade --install my-app-staging ./kubernetes/helm-chart \
-                      --namespace staging \
-                      --set image.repository=${REGISTRY_URL}/${APP_NAME} \
-                      --set image.tag=${env.BUILD_NUMBER} \
-                      --set replicaCount=1 \
-                      --set-string config.welcomeMessage="Welcome to the STAGING Environment!" \
-                      --set service.port=80 \
-                      --set service.targetPort=8080 \
-                      --set ingress.enabled=true \
-                      --set ingress.className=nginx \
-                      --set ingress.host=my-app-staging.local \
-                      --set ingress.path=/ \
-                      --set ingress.pathType=Prefix \
+                    helm upgrade --install my-app-staging ./kubernetes/helm-chart \\
+                      --namespace staging \\
+                      --set image.repository=${REGISTRY_URL}/${APP_NAME} \\
+                      --set image.tag=${env.BUILD_NUMBER} \\
+                      --set replicaCount=1 \\
+                      --set-string config.welcomeMessage="Welcome to the STAGING Environment!" \\
+                      --set service.port=80 \\
+                      --set service.targetPort=8000 \\
+                      --set ingress.enabled=true \\
+                      --set ingress.className=nginx \\
+                      --set ingress.host=my-app-staging.local \\
+                      --set ingress.path=/ \\
+                      --set ingress.pathType=Prefix \\
                       --kubeconfig ${WORKSPACE}/kubeconfig
                 """
             }
@@ -201,31 +212,30 @@ EOF
             steps {
                 echo 'Deploying application to the production namespace using Helm...'
                 sh """
-                    helm upgrade --install my-app-production ./kubernetes/helm-chart \
-                      --namespace production \
-                      --set image.repository=${REGISTRY_URL}/${APP_NAME} \
-                      --set image.tag=stable \
-                      --set replicaCount=3 \
-                      --set-string config.welcomeMessage="Welcome to the PRODUCTION Environment!" \
-                      --set service.port=80 \
-                      --set service.targetPort=8080 \
-                      --set ingress.enabled=true \
-                      --set ingress.className=nginx \
-                      --set ingress.host=my-app.local \
-                      --set ingress.path=/ \
-                      --set ingress.pathType=Prefix \
+                    helm upgrade --install my-app-production ./kubernetes/helm-chart \\
+                      --namespace production \\
+                      --set image.repository=${REGISTRY_URL}/${APP_NAME} \\
+                      --set image.tag=stable \\
+                      --set replicaCount=3 \\
+                      --set-string config.welcomeMessage="Welcome to the PRODUCTION Environment!" \\
+                      --set service.port=80 \\
+                      --set service.targetPort=8000 \\
+                      --set ingress.enabled=true \\
+                      --set ingress.className=nginx \\
+                      --set ingress.host=my-app.local \\
+                      --set ingress.path=/ \\
+                      --set ingress.pathType=Prefix \\
                       --kubeconfig ${WORKSPACE}/kubeconfig
                 """
             }
         }
     }
-    // This 'post' section runs after the build finishes, regardless of the outcome.
+
     post {
-        // The 'always' condition ensures the 'cleanWs' step is executed every time.
+
         always {
             echo "Cleaning up the workspace..."
-            // The 'cleanWs' step removes all files from the workspace,
-            // preparing it for the next build.
+
             cleanWs()
         }
     }

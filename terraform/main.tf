@@ -91,7 +91,7 @@ resource "docker_container" "local_registry" {
   }
 }
 
-# Build your Jenkins image from ../jenkins/Dockerfile (relative to terraform/)
+# Build jenkins image
 resource "docker_image" "jenkins_image" {
   name = "my-jenkins-docker-enabled:latest"
   build { context = "../jenkins" }
@@ -102,7 +102,7 @@ resource "docker_container" "jenkins_server" {
   name  = "jenkins"
   image = docker_image.jenkins_image.name
 
-  # Easiest for local dev to avoid socket perms:
+
   user = "0:0"
 
   ports {

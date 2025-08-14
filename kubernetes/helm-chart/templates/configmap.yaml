@@ -1,10 +1,8 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  # The name of the ConfigMap is now based on the release name and chart name.
   name: {{ .Release.Name }}-{{ .Chart.Name }}-configmap
   labels:
-    # Using standard labels that Helm populates automatically.
     app.kubernetes.io/name: {{ .Chart.Name }}
     app.kubernetes.io/instance: {{ .Release.Name }}
 data:

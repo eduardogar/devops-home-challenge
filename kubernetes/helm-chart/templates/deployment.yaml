@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  # The deployment name is now simply the chart name.
+
   name: {{ .Chart.Name }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      # The selector labels are now explicitly defined.
+
       app.kubernetes.io/name: {{ .Chart.Name }}
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       labels:
-        # The template labels are also explicitly defined.
+
         app.kubernetes.io/name: {{ .Chart.Name }}
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
@@ -27,7 +27,7 @@ spec:
             - name: WELCOME_MESSAGE
               valueFrom:
                 configMapKeyRef:
-                  # Referencing the new ConfigMap name format.
+
                   name: {{ .Release.Name }}-{{ .Chart.Name }}-configmap
                   key: WELCOME_MESSAGE
           livenessProbe:
